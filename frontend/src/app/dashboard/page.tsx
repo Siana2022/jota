@@ -2,6 +2,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import LogoutButton from './LogoutButton'
+import LeadsTable from '@/components/LeadsTable' // Importamos la tabla
+
+export type Lead = {
+  id: string;
+  created_at: string;
+  nombre: string | null;
+  email: string | null;
+  telefono: string | null;
+  estado: 'Lead' | 'Lead Cualificado' | 'Cliente/Compra';
+};
+
 
 export default async function DashboardPage() {
   const supabase = createClient()
@@ -11,26 +22,58 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    // Si no hay usuario, redirigir a la página de login
     return redirect('/login')
   }
 
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
-      <div className="w-full max-w-2xl rounded-lg bg-white p-8 text-center shadow-md">
-        <h1 className="text-3xl font-bold text-gray-800">
-          Bienvenido al Dashboard
-        </h1>
-        <p className="mt-4 text-gray-600">
-          Has iniciado sesión como: <span className="font-semibold text-indigo-600">{user.email}</span>
-        </p>
-        <p className="mt-2 text-sm text-gray-500">
-          Tu ID de usuario es: <code className="rounded bg-gray-100 p-1 text-xs">{user.id}</code>
-        </p>
-        <div className="mt-8">
-          <LogoutButton />
-        </div>
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('cliente_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || !profile.cliente_id) {
+    return (
+      <div className="text-center p-8">
+        No se pudo encontrar el perfil del cliente. Contacte a soporte.
+        <LogoutButton />
       </div>
+    )
+  }
+
+  const { data: leads, error } = await supabase
+    .from('leads')
+    .select('id, created_at, nombre, email, telefono, estado') // Seleccionamos solo los campos necesarios
+    .eq('cliente_id', profile.cliente_id)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching leads:', error)
+  }
+
+  const leadsData: Lead[] = leads || [];
+
+  return (
+    <div className="flex min-h-screen w-full flex-col bg-gray-100">
+      <header className="flex items-center justify-between bg-white p-4 shadow-md">
+        <div>
+          <h1 className="text-xl font-bold text-gray-800">Panel de Leads</h1>
+          <p className="text-sm text-gray-600">
+            Bienvenido, <span className="font-semibold">{user.email}</span>
+          </p>
+        </div>
+        <LogoutButton />
+      </header>
+
+      <main className="flex-1 p-6">
+        <h2 className="mb-4 text-2xl font-semibold text-gray-700">
+          Tus Leads Recientes
+        </h2>
+
+        {/* Reemplazamos el JSON con nuestra tabla de leads */}
+        <div className="rounded-lg bg-white p-4 shadow">
+          <LeadsTable leads={leadsData} />
+        </div>
+      </main>
     </div>
   )
 }
