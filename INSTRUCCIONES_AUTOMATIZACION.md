@@ -2,9 +2,9 @@
 
 Sigue estos pasos para implementar y probar el sistema de triggers que envía eventos de conversión.
 
-### Paso 1: Desplegar la Nueva Edge Function
+### Paso 1: Desplegar la Edge Function
 
-Primero, necesitas desplegar la nueva función `send-conversion` en tu proyecto de Supabase.
+Primero, necesitas desplegar la función `send-conversion` (o volver a desplegarla si ya existía) con el nuevo código.
 
 1.  **Asegúrate de haber iniciado sesión** en el Supabase CLI:
     ```bash
@@ -18,55 +18,51 @@ Primero, necesitas desplegar la nueva función `send-conversion` en tu proyecto 
     ```bash
     npx supabase functions deploy send-conversion --no-verify-jwt
     ```
-    *Nota: Usamos `--no-verify-jwt` porque la autenticación se manejará con la `service_role_key` en la llamada desde la base de datos.*
 
 ### Paso 2: Ejecutar el Script SQL del Trigger
 
-A continuación, necesitas aplicar la lógica de la base de datos (la función y el trigger).
+Si no lo has hecho en la fase anterior, necesitas aplicar la lógica de la base de datos.
 
-1.  **Abre el archivo `trigger.sql`** en tu editor de código.
-
+1.  **Abre el archivo `trigger.sql`**.
 2.  **Reemplaza los placeholders**:
-    *   Busca `<URL_DE_TU_PROYECTO>` y reemplázalo por la URL real de tu proyecto de Supabase (la encuentras en "Settings" -> "API").
-    *   Busca `<TU_SERVICE_ROLE_KEY>` y reemplázala por tu clave `service_role` (la encuentras en "Settings" -> "API"). **¡Trata esta clave con mucho cuidado, es muy sensible!**
+    *   Reemplaza `<URL_DE_TU_PROYECTO>` por tu URL real de Supabase.
+    *   Reemplaza `<TU_SERVICE_ROLE_KEY>` por tu clave `service_role`.
+3.  **Ejecuta el script** en el "SQL Editor" de tu dashboard de Supabase.
 
-3.  **Ejecuta el script**:
-    *   Ve al dashboard de tu proyecto en Supabase.
-    *   Navega a "SQL Editor".
-    *   Copia todo el contenido del archivo `trigger.sql` (ya con tus valores reales) y pégalo en el editor.
-    *   Haz clic en "RUN".
+---
 
-Si todo va bien, no deberías ver ningún error.
+### Paso 3: Configurar un Endpoint de Prueba (¡NUEVO!)
 
-### Paso 3: Probar el Flujo Completo
+Para verificar que la función envía los datos correctamente, usaremos un servicio gratuito que nos permite inspeccionar solicitudes HTTP.
 
-¡Ahora la parte divertida! Vamos a probar que todo el sistema funciona de extremo a extremo.
+1.  **Ve a [https://webhook.site/](https://webhook.site/)** en tu navegador.
+2.  El sitio te dará automáticamente una **URL única**. Cópiala. Esta será tu URL de GTM Server-side para las pruebas.
+3.  **Mantén esta pestaña del navegador abierta**.
 
-1.  **Asegúrate de tener un lead de prueba**:
-    *   Si no tienes leads, puedes crear uno manualmente en el "Table Editor" -> tabla `leads`. Asegúrate de que tenga un `cliente_id` válido.
-    *   Alternativamente, usa el endpoint de `lead-capture` para crear uno.
+### Paso 4: Configurar el Endpoint en Supabase
 
-2.  **Inicia la aplicación de frontend**:
-    *   Navega a la carpeta `frontend`.
-    *   Asegúrate de que tu `.env.local` está configurado.
-    *   Ejecuta `npm run dev`.
+Ahora, le diremos a nuestro CRM que envíe las conversiones a la URL de prueba.
 
-3.  **Cambia el estado de un lead**:
-    *   Abre la aplicación en tu navegador (`http://localhost:3000`).
-    *   Inicia sesión con un usuario que pertenezca al mismo cliente que tu lead de prueba.
-    *   En el dashboard, busca el lead de prueba y usa el menú desplegable para cambiar su estado a **"Lead Cualificado"** o **"Cliente/Compra"**.
+1.  **Ve al dashboard de Supabase** -> "Table Editor".
+2.  Selecciona la tabla `configuraciones_api`.
+3.  **Busca la fila del cliente** con el que vas a hacer la prueba. Si no existe una fila para ese cliente, crea una y asegúrate de rellenar el `cliente_id`.
+4.  En la columna `gtm_server_url`, **pega la URL única que te dio Webhook.site**.
+5.  Guarda los cambios.
 
-### Paso 4: Verificar el Resultado en los Logs
+### Paso 5: Probar el Flujo Completo
 
-El cambio de estado debería haber activado el trigger y llamado a la Edge Function. Vamos a comprobarlo.
+Ahora vamos a probar todo el sistema.
 
-1.  **Ve al dashboard de Supabase**.
-2.  En el menú de la izquierda, ve a "Edge Functions".
-3.  Selecciona la función `send-conversion`.
-4.  Haz clic en la pestaña "Logs" o "Invocations".
+1.  **Inicia la aplicación de frontend** (`npm run dev` en la carpeta `frontend`).
+2.  **Inicia sesión** con un usuario que pertenezca al cliente que configuraste en el paso 4.
+3.  En el dashboard, **cambia el estado de un lead** a "Lead Cualificado" o "Cliente/Compra".
 
-Deberías ver una nueva entrada de log que comienza con:
-`Evento de conversión recibido para el lead: { ... }`
-seguido de los datos completos del lead cuyo estado cambiaste.
+### Paso 6: Verificar el Resultado en Webhook.site
 
-**Si ves este mensaje en los logs, ¡felicidades! La automatización de conversiones está funcionando perfectamente.**
+Vuelve a la pestaña del navegador donde tienes abierto Webhook.site.
+
+-   **¡Deberías ver una nueva solicitud (POST) aparecer en la lista de la izquierda!**
+-   Haz clic en ella.
+-   En el panel de la derecha, bajo "Raw Content", verás el JSON que nuestra Edge Function ha enviado. Debería contener el `event_name` y todos los datos del `lead_data`.
+
+**Si ves esta solicitud en Webhook.site, significa que el ciclo completo de automatización funciona a la perfección. ¡Felicidades!**
