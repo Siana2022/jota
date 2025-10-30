@@ -1,43 +1,57 @@
--- 1. Habilitar la extensión pg_net si no está habilitada
--- pg_net es necesaria para hacer solicitudes HTTP desde la base de datos a las Edge Functions.
-create extension if not exists pg_net with schema extensions;
+-- Este script asume que has habilitado la extensión 'supabase_vault' y 'pg_net'.
+-- Puedes hacerlo desde el Dashboard de Supabase -> Database -> Extensions.
 
-
--- 2. Crear la función que manejará la lógica del trigger
+-- 1. Crear la función que manejará la lógica del trigger
 create or replace function handle_lead_status_change()
 returns trigger
 language plpgsql
-security definer -- La función se ejecuta con los permisos del usuario que la creó (importante para pg_net)
+security definer -- La función se ejecuta con los permisos del usuario que la creó
 as $$
+declare
+  project_url text;
+  service_role_key text;
+  -- Declaramos una variable para los headers con un tipo específico
+  headers jsonb;
 begin
+  -- Obtenemos los secretos de forma segura desde Supabase Vault
+  select decrypted_secret into project_url from vault.decrypted_secrets where name = 'supabase_url';
+  select decrypted_secret into service_role_key from vault.decrypted_secrets where name = 'supabase_service_role_key';
+
+  -- Si no se encuentran los secretos, lanzamos un error claro en los logs de la base de datos.
+  if project_url is null or service_role_key is null then
+    raise warning 'No se encontraron los secretos "supabase_url" o "supabase_service_role_key" en Vault.';
+    return NEW;
+  end if;
+
   -- Comprobamos si el estado del lead ha cambiado a un valor significativo.
-  -- OLD.estado es el valor antes de la actualización, NEW.estado es el valor nuevo.
   if OLD.estado is distinct from NEW.estado and (NEW.estado = 'Lead Cualificado' or NEW.estado = 'Cliente/Compra') then
-    -- Si el estado cambió, invocamos la Edge Function 'send-conversion' de forma asíncrona.
+
+    -- Construimos los headers
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || service_role_key
+    );
+
+    -- Invocamos la Edge Function de forma asíncrona.
     perform net.http_post(
-      -- URL de la Edge Function
-      url:='https://<URL_DE_TU_PROYECTO>.supabase.co/functions/v1/send-conversion',
-      -- Cuerpo de la solicitud: pasamos todos los datos del lead actualizado
+      -- La URL se construye dinámicamente con el secreto
+      url:= project_url || '/functions/v1/send-conversion',
+      -- El cuerpo de la solicitud
       body:=jsonb_build_object('record', row_to_json(NEW)),
-      -- Cabeceras necesarias para la autenticación
-      headers:=jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || '<TU_SERVICE_ROLE_KEY>' -- Usamos la service_role key para seguridad
-      )
+      -- Las cabeceras
+      headers:=headers
     );
   end if;
 
-  -- Es obligatorio devolver NEW en un trigger de tipo 'AFTER'
   return NEW;
 end;
 $$;
 
 
--- 3. Crear el Trigger en la tabla 'leads'
--- Primero, nos aseguramos de que no exista un trigger con el mismo nombre para evitar errores.
+-- 2. Crear el Trigger en la tabla 'leads'
+-- (Esto no cambia, pero lo mantenemos para que el script sea completo)
 drop trigger if exists on_lead_status_change on leads;
 
--- Creamos el trigger que se activa DESPUÉS de cada actualización en una fila de la tabla 'leads'.
 create trigger on_lead_status_change
 after update on leads
 for each row
